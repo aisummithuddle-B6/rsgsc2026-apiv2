@@ -1,6 +1,6 @@
 from typing import Annotated, Literal
 
-from fastapi import Depends, FastAPI, Query
+from fastapi import Depends, FastAPI, HTTPException, Query
 
 from app.core.config import get_settings
 from app.core.documentdb import get_document_database
@@ -9,6 +9,10 @@ from app.services.entity_records import (
     EntityRecordRepositoryProtocol,
     EntityTopConfig,
     list_top_entity_records,
+)
+from app.services.fraud_validation import (
+    FraudClaimRepository,
+    FraudValidationAgent,
 )
 
 
@@ -39,6 +43,10 @@ SAMPLE_CLAIMANTS = EntityTopConfig(
 
 def get_entity_record_repository() -> EntityRecordRepository:
     return EntityRecordRepository(get_document_database())
+
+
+def get_fraud_validation_agent() -> FraudValidationAgent:
+    return FraudValidationAgent(FraudClaimRepository(get_document_database()))
 
 
 @app.get("/health", tags=["health"])
@@ -120,3 +128,14 @@ def get_top_sample_claimants(
         sort_by=sort_by,
         sort_order=sort_order,
     )
+
+
+@app.post("/fraud/claims/{claim_id}/validate", tags=["fraud"])
+def validate_claim_for_fraud(
+    claim_id: str,
+    agent: Annotated[FraudValidationAgent, Depends(get_fraud_validation_agent)],
+) -> dict:
+    result = agent.validate_claim(claim_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Claim not found")
+    return result
